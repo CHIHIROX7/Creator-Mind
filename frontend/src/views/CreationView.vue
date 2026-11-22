@@ -2,12 +2,19 @@
 import StarterKit from '@tiptap/starter-kit'
 import { EditorContent, useEditor } from '@tiptap/vue-3'
 import { onBeforeUnmount, ref } from 'vue'
+import { useAuthStore } from '@/stores/auth'
+import { useDraftsStore } from '@/stores/drafts'
 
-const title = ref('知识创作者如何建立可信的 AI 工作流')
+const auth = useAuthStore()
+const drafts = useDraftsStore()
+const userId = auth.user!.id
+const pageEpoch = auth.authEpoch
+const recovered = drafts.takeCreation(userId)
+const title = ref(recovered?.title ?? '知识创作者如何建立可信的 AI 工作流')
 
 const editor = useEditor({
   extensions: [StarterKit],
-  content: `
+  content: recovered?.content ?? `
     <h1>知识创作者如何建立可信的 AI 工作流</h1>
     <p>这是一份可编辑的示例草稿。后续将在这里接入 Research、Writer 与 Verification Agent 的真实输出。</p>
     <h2>为什么需要证据链</h2>
@@ -57,7 +64,15 @@ function redo() {
   editor.value?.chain().focus().redo().run()
 }
 
+const unsubscribe = auth.onPrivateReset((reason) => {
+  if (auth.authEpoch !== pageEpoch) return
+  if (reason !== 'logout' && editor.value) drafts.saveCreation(userId, title.value, editor.value.getJSON())
+  title.value = ''
+  editor.value?.commands.clearContent()
+})
+
 onBeforeUnmount(() => {
+  unsubscribe()
   editor.value?.destroy()
 })
 </script>
@@ -68,7 +83,8 @@ onBeforeUnmount(() => {
       <div>
         <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-brand-600">Creation studio</p>
         <h2 class="mt-1 text-2xl font-semibold text-ink-950">多 Agent 创作</h2>
-        <p class="mt-2 text-sm text-ink-500">当前版本提供编辑工作台与 Agent 流程占位。</p>
+        <p class="mt-2 text-sm text-ink-500">当前版本提供编辑工作台与 Agent 流程占位。草稿仅在内存中，刷新或主动退出会清除。</p>
+        <p v-if="recovered" role="status" class="mt-2 text-sm text-brand-600">已恢复同账号的文章标题与正文；未恢复编辑器撤销历史。</p>
       </div>
       <div class="flex gap-2">
         <button type="button" class="btn-secondary" disabled>保存版本</button>
