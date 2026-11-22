@@ -52,6 +52,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   health: () => request<HealthResponse>('/health'),
+  countSources: () => request<{ total: number }>('/sources/count'),
   listSources: (limit: number, offset: number) =>
     request<Source[]>(`/sources?limit=${limit}&offset=${offset}`),
   uploadSource: (file: File, sourceUrl: string) => {

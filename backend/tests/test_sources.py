@@ -112,8 +112,20 @@ def test_database_rejection_cleans_up_the_original(library):
     assert not objects
 
 
+@pytest.mark.parametrize("total", [0, 125])
+def test_count_returns_the_total_outside_of_pagination(library, total):
+    client, db, _, _, _, _ = library
+    db.scalar.return_value = total
+
+    assert client.get(f"{ENDPOINT}/count").json() == {"total": total}
+    db.scalar.assert_awaited_once()
+    db.scalars.assert_not_awaited()
+
+
 def test_production_rejects_requests_before_database_access(library, monkeypatch):
     client, db, _, _, _, _ = library
     monkeypatch.setattr(sources.settings, "environment", "production")
     assert client.get(ENDPOINT).status_code == 503
+    assert client.get(f"{ENDPOINT}/count").status_code == 503
+    db.scalar.assert_not_awaited()
     db.scalars.assert_not_awaited()

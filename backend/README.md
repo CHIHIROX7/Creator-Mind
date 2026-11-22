@@ -12,6 +12,7 @@ CreatorMind 的 FastAPI 后端。开发与启动方式见仓库根目录 `README
 | --- | --- |
 | `POST /api/v1/sources` | 用 `multipart/form-data` 上传 `file`，可选 `source_url`，成功返回 201。 |
 | `GET /api/v1/sources` | 按导入时间倒序分页，支持 `limit` 和 `offset`。 |
+| `GET /api/v1/sources/count` | 返回素材总数 `{"total": N}`，供首页统计使用。 |
 | `GET /api/v1/sources/{asset_id}` | 查询素材元数据。上传响应里的 `id` 就是 `asset_id`。 |
 
 支持 PDF、Markdown 和 TXT，单文件上限为 20 MiB。可在 `/docs` 或前端「作品与素材库」验证上传。

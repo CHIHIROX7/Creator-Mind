@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import HttpUrl
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
@@ -14,7 +14,7 @@ from starlette.concurrency import run_in_threadpool
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.source import Source
-from app.schemas.source import SourceOut
+from app.schemas.source import SourceCount, SourceOut
 from app.services.source_storage import discard_source_object, put_source_object
 
 logger = logging.getLogger(__name__)
@@ -114,6 +114,12 @@ async def list_sources(
         .limit(limit)
     )
     return list(result.all())
+
+
+@router.get("/count", response_model=SourceCount)
+async def count_sources(db: DbSession) -> SourceCount:
+    total = await db.scalar(select(func.count()).select_from(Source))
+    return SourceCount(total=total or 0)
 
 
 @router.get("/{asset_id}", response_model=SourceOut)

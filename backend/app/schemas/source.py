@@ -13,3 +13,7 @@ class SourceOut(BaseModel):
     size_bytes: int
     source_url: str | None
     created_at: datetime
+
+
+class SourceCount(BaseModel):
+    total: int
