@@ -27,6 +27,7 @@ class AgentMemoryOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    user_id: UUID
     conversation_id: UUID | None
     source_message_id: UUID | None
     memory_type: MemoryType

@@ -80,6 +80,7 @@ def extract_keywords(text: str) -> list[str]:
 
 async def remember_user_message(
     db: AsyncSession,
+    user_id: UUID,
     conversation_id: UUID,
     message: Message,
 ) -> int:
@@ -89,7 +90,7 @@ async def remember_user_message(
 
     existing_result = await db.scalars(
         select(AgentMemory)
-        .where(AgentMemory.status == "active")
+        .where(AgentMemory.user_id == user_id, AgentMemory.status == "active")
         .order_by(AgentMemory.updated_at.desc())
         .limit(MEMORY_PREFETCH_LIMIT)
     )
@@ -125,6 +126,7 @@ async def remember_user_message(
             continue
 
         memory = AgentMemory(
+            user_id=user_id,
             conversation_id=conversation_id,
             source_message_id=message.id,
             memory_type=memory_type,
@@ -160,13 +162,14 @@ async def load_short_term_messages(
 
 async def load_long_term_memories(
     db: AsyncSession,
+    user_id: UUID,
     *,
     query: str | None = None,
     limit: int = 8,
 ) -> list[AgentMemory]:
     result = await db.scalars(
         select(AgentMemory)
-        .where(AgentMemory.status == "active")
+        .where(AgentMemory.user_id == user_id, AgentMemory.status == "active")
         .order_by(AgentMemory.updated_at.desc())
         .limit(MEMORY_PREFETCH_LIMIT)
     )
@@ -178,6 +181,7 @@ async def load_long_term_memories(
 
 async def build_memory_bundle(
     db: AsyncSession,
+    user_id: UUID,
     conversation_id: UUID,
     *,
     query: str | None = None,
@@ -188,7 +192,7 @@ async def build_memory_bundle(
         select(ConversationSummary).where(ConversationSummary.conversation_id == conversation_id)
     )
     short_term = await load_short_term_messages(db, conversation_id, limit=recent_limit)
-    long_term = await load_long_term_memories(db, query=query, limit=long_term_limit)
+    long_term = await load_long_term_memories(db, user_id, query=query, limit=long_term_limit)
     context = render_memory_context(summary, short_term, long_term)
     return MemoryBundle(summary, short_term, long_term, context)
 
@@ -226,12 +230,14 @@ def render_memory_context(
 
 async def delete_long_term_memory(
     db: AsyncSession,
+    user_id: UUID,
     conversation_id: UUID,
     memory_id: UUID,
 ) -> None:
     memory = await db.scalar(
         select(AgentMemory).where(
             AgentMemory.id == memory_id,
+            AgentMemory.user_id == user_id,
             AgentMemory.conversation_id == conversation_id,
             AgentMemory.status == "active",
         )
@@ -244,9 +250,10 @@ async def delete_long_term_memory(
     await db.commit()
 
 
-async def clear_conversation_memory(db: AsyncSession, conversation_id: UUID) -> int:
+async def clear_conversation_memory(db: AsyncSession, user_id: UUID, conversation_id: UUID) -> int:
     result = await db.scalars(
         select(AgentMemory).where(
+            AgentMemory.user_id == user_id,
             AgentMemory.conversation_id == conversation_id,
             AgentMemory.status == "active",
         )

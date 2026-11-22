@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 
 import { useAppStore } from '@/stores/app'
+import PasswordForm from '@/components/PasswordForm.vue'
 
 const appStore = useAppStore()
 const apiBase = import.meta.env.VITE_API_BASE_URL || '/api/v1'
@@ -24,6 +25,8 @@ const services = [
       <h2 class="mt-1 text-2xl font-semibold text-ink-950">系统设置</h2>
       <p class="mt-2 text-sm text-ink-500">查看当前工程骨架的连接状态与配置入口。</p>
     </div>
+
+    <PasswordForm />
 
     <section class="grid gap-4 md:grid-cols-3">
       <article class="panel p-5">

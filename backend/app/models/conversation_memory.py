@@ -50,7 +50,7 @@ class ConversationSummary(Base):
 
 
 class AgentMemory(Base):
-    """A durable fact, preference, or constraint extracted from a conversation."""
+    """A durable fact, preference, or constraint owned by one user."""
 
     __tablename__ = "agent_memories"
     __table_args__ = (
@@ -62,11 +62,15 @@ class AgentMemory(Base):
         CheckConstraint(
             "importance >= 0 AND importance <= 1", name="ck_agent_memories_importance"
         ),
-        Index("ix_agent_memories_status_updated", "status", "updated_at"),
+        Index("ix_agent_memories_user_status_updated", "user_id", "status", "updated_at"),
+        Index("ix_agent_memories_user_type_status", "user_id", "memory_type", "status"),
         Index("ix_agent_memories_source_conversation", "conversation_id"),
     )
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    user_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
     conversation_id: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True),
         ForeignKey("conversations.id", ondelete="SET NULL"),

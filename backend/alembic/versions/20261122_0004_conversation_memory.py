@@ -1,7 +1,7 @@
-"""Create conversation summaries and long-term agent memories.
+"""Create conversation summaries and user-owned long-term agent memories.
 
-Revision ID: 20261122_0003
-Revises: 20261120_0002
+Revision ID: 20261122_0004
+Revises: 20261122_0003
 """
 
 from collections.abc import Sequence
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "20261122_0003"
-down_revision: str | Sequence[str] | None = "20261120_0002"
+revision: str = "20261122_0004"
+down_revision: str | Sequence[str] | None = "20261122_0003"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -42,6 +42,12 @@ def upgrade() -> None:
     op.create_table(
         "agent_memories",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+        sa.Column(
+            "user_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("users.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
         sa.Column(
             "conversation_id",
             postgresql.UUID(as_uuid=True),
@@ -77,7 +83,16 @@ def upgrade() -> None:
             "importance >= 0 AND importance <= 1", name="ck_agent_memories_importance"
         ),
     )
-    op.create_index("ix_agent_memories_status_updated", "agent_memories", ["status", "updated_at"])
+    op.create_index(
+        "ix_agent_memories_user_status_updated",
+        "agent_memories",
+        ["user_id", "status", "updated_at"],
+    )
+    op.create_index(
+        "ix_agent_memories_user_type_status",
+        "agent_memories",
+        ["user_id", "memory_type", "status"],
+    )
     op.create_index(
         "ix_agent_memories_source_conversation", "agent_memories", ["conversation_id"]
     )
@@ -85,7 +100,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index("ix_agent_memories_source_conversation", table_name="agent_memories")
-    op.drop_index("ix_agent_memories_status_updated", table_name="agent_memories")
+    op.drop_index("ix_agent_memories_user_type_status", table_name="agent_memories")
+    op.drop_index("ix_agent_memories_user_status_updated", table_name="agent_memories")
     op.drop_table("agent_memories")
     op.drop_index("ix_conversation_summaries_updated", table_name="conversation_summaries")
     op.drop_table("conversation_summaries")

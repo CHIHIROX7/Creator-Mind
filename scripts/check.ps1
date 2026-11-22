@@ -14,7 +14,9 @@ if (-not (Test-Path -LiteralPath 'frontend/node_modules')) {
 Push-Location backend
 try {
     & '.\.venv\Scripts\python.exe' -m ruff check .
+    if ($LASTEXITCODE -ne 0) { throw 'Backend lint failed.' }
     & '.\.venv\Scripts\python.exe' -m pytest
+    if ($LASTEXITCODE -ne 0) { throw 'Backend tests failed.' }
 } finally {
     Pop-Location
 }
@@ -22,8 +24,11 @@ try {
 Push-Location frontend
 try {
     npm run typecheck
+    if ($LASTEXITCODE -ne 0) { throw 'Frontend typecheck failed.' }
     npm test
+    if ($LASTEXITCODE -ne 0) { throw 'Frontend tests failed.' }
     npm run build
+    if ($LASTEXITCODE -ne 0) { throw 'Frontend build failed.' }
 } finally {
     Pop-Location
 }
