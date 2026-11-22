@@ -34,12 +34,6 @@ const router = createRouter({
           meta: { title: '多对话与消息' },
         },
         {
-          path: 'memory',
-          name: 'memory',
-          component: () => import('@/views/MemoryView.vue'),
-          meta: { title: '个性化记忆' },
-        },
-        {
           path: 'settings',
           name: 'settings',
           component: () => import('@/views/SettingsView.vue'),

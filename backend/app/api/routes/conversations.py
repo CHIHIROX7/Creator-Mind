@@ -4,11 +4,12 @@ Authentication/tenant isolation is not implemented in the starter project;
 add authorization before exposing these endpoints publicly.
 """
 
+import logging
 from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,9 +22,16 @@ from app.schemas.conversation import (
     MessageCreate,
     MessageOut,
 )
+from app.schemas.conversation_memory import ConversationMemoryOut
+from app.services import conversation_memory as memory_service
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 DbSession = Annotated[AsyncSession, Depends(get_db)]
+MemoryQuery = Annotated[str | None, Query(max_length=500)]
+MemoryRecentLimit = Annotated[int, Query(ge=1, le=50)]
+MemoryLongTermLimit = Annotated[int, Query(ge=1, le=30)]
+
+logger = logging.getLogger(__name__)
 
 
 async def require_conversation(db: AsyncSession, conversation_id: UUID) -> Conversation:
@@ -110,4 +118,68 @@ async def create_message(conversation_id: UUID, payload: MessageCreate, db: DbSe
     conversation.updated_at = datetime.now(UTC)
     await db.commit()
     await db.refresh(message)
+    message_id = message.id
+
+    if payload.role == "user":
+        try:
+            await memory_service.remember_user_message(db, conversation_id, message)
+        except Exception:
+            await db.rollback()
+            logger.exception(
+                "Conversation memory update failed: conversation_id=%s message_id=%s",
+                conversation_id,
+                message_id,
+            )
+            message = await db.get(Message, message_id)
+            if message is None:
+                raise HTTPException(status_code=500, detail="消息已保存，但记忆更新失败") from None
     return message
+
+
+@router.get("/{conversation_id}/memory", response_model=ConversationMemoryOut)
+async def get_conversation_memory(
+    conversation_id: UUID,
+    db: DbSession,
+    query: MemoryQuery = None,
+    recent_limit: MemoryRecentLimit = 12,
+    long_term_limit: MemoryLongTermLimit = 8,
+) -> ConversationMemoryOut:
+    await require_conversation(db, conversation_id)
+    bundle = await memory_service.build_memory_bundle(
+        db,
+        conversation_id,
+        query=query,
+        recent_limit=recent_limit,
+        long_term_limit=long_term_limit,
+    )
+    return ConversationMemoryOut(
+        conversation_id=conversation_id,
+        summary=bundle.summary,
+        short_term_messages=bundle.short_term_messages,
+        long_term_memories=bundle.long_term_memories,
+        context=bundle.context,
+    )
+
+
+@router.delete(
+    "/{conversation_id}/memory/long-term/{memory_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_long_term_memory(
+    conversation_id: UUID,
+    memory_id: UUID,
+    db: DbSession,
+) -> Response:
+    await require_conversation(db, conversation_id)
+    try:
+        await memory_service.delete_long_term_memory(db, conversation_id, memory_id)
+    except memory_service.ConversationMemoryNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="长期记忆不存在") from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete("/{conversation_id}/memory", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_conversation_memory(conversation_id: UUID, db: DbSession) -> Response:
+    await require_conversation(db, conversation_id)
+    await memory_service.clear_conversation_memory(db, conversation_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

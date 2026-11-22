@@ -9,6 +9,7 @@ class CreationState(TypedDict, total=False):
     task_id: str
     conversation_id: str
     user_input: str
+    memory_context: str
     intent: Intent
     intent_confidence: float
     intent_slots: IntentSlots

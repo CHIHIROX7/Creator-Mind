@@ -20,6 +20,7 @@ class WorkflowContext(TypedDict, total=False):
     user_id: str
     conversation_id: str
     task_id: str
+    memory_context: str
 
 
 IntentClassifier = Callable[[str, str | None], IntentResult]
@@ -89,6 +90,8 @@ def execute_workflow(
     }
     if trusted_context.get("conversation_id"):
         state["conversation_id"] = str(trusted_context["conversation_id"])
+    if trusted_context.get("memory_context"):
+        state["memory_context"] = str(trusted_context["memory_context"])
     if trusted_context.get("task_id"):
         state["task_id"] = str(trusted_context["task_id"])
 
@@ -120,7 +123,10 @@ def execute_workflow(
         if intent_result.intent == Intent.CHAT:
             state["current_step"] = "respond_chat"
             result = _run_tool(
-                tools, "respond_chat", {"message": user_input}, trusted_context
+                tools,
+                "respond_chat",
+                {"message": user_input, "memory_context": state.get("memory_context", "")},
+                trusted_context,
             )
             state.update(status="completed", result=result)
             return state
@@ -236,7 +242,11 @@ def execute_workflow(
             revision = _run_tool(
                 tools,
                 "revise_draft",
-                {"draft_id": slots.draft_id, "instruction": slots.instruction},
+                {
+                    "draft_id": slots.draft_id,
+                    "instruction": slots.instruction,
+                    "memory_context": state.get("memory_context", ""),
+                },
                 trusted_context,
             )
             draft = revision["draft"]

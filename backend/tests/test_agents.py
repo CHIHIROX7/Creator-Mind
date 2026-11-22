@@ -326,3 +326,17 @@ def test_intent_classification_failure_returns_failed_state() -> None:
 
     assert state["status"] == "failed"
     assert state["error_code"] == "intent_classification_failed"
+
+
+def test_memory_context_is_injected_into_chat_tool() -> None:
+    calls: list[tuple[str, dict[str, Any], Mapping[str, Any]]] = []
+    state = execute_workflow(
+        "hello",
+        tools=mock_tools(calls),
+        execution_context={"memory_context": "长期记忆：先给结论"},
+        classifier=lambda *_: make_result(Intent.CHAT),
+    )
+
+    assert state["status"] == "completed"
+    assert calls[0][1]["memory_context"] == "长期记忆：先给结论"
+    assert state["memory_context"] == "长期记忆：先给结论"
