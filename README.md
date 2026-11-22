@@ -15,8 +15,9 @@ CreatorMind 是面向科技、教育、科普类知识创作者的**个性化可
 - Celery Worker 与 LangGraph 三阶段流程占位
 - Alembic 数据库迁移与 pgvector 扩展
 - Docker Compose 本地基础设施，以及可选的完整容器开发环境
+- 素材库支持导入 PDF、Markdown 和 TXT，原文件保存在 MinIO，来源和文件信息保存在 PostgreSQL
 
-> 当前版本尚未实现登录、文件上传、RAG、真实模型调用和内容持久化。
+> 素材库当前用于本地单工作区开发。登录、RAG、真实模型调用和创作内容持久化仍待接入。
 
 ## 技术栈
 

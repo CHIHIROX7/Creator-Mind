@@ -5,6 +5,15 @@ export interface HealthResponse {
   environment: string
 }
 
+export interface Source {
+  id: string
+  filename: string
+  content_type: string
+  size_bytes: number
+  source_url: string | null
+  created_at: string
+}
+
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api/v1').replace(/\/$/, '')
 
 export class ApiError extends Error {
@@ -28,6 +37,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   })
 
   if (!response.ok) {
+    const body = await response.json().catch(() => null)
+    if (typeof body?.detail === 'string') {
+      throw new ApiError(body.detail, response.status)
+    }
+    if (typeof body?.detail?.[0]?.msg === 'string') {
+      throw new ApiError(body.detail[0].msg, response.status)
+    }
     throw new ApiError(`请求失败（HTTP ${response.status}）`, response.status)
   }
 
@@ -36,4 +52,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   health: () => request<HealthResponse>('/health'),
+  listSources: (limit: number, offset: number) =>
+    request<Source[]>(`/sources?limit=${limit}&offset=${offset}`),
+  uploadSource: (file: File, sourceUrl: string) => {
+    const body = new FormData()
+    body.set('file', file)
+    if (sourceUrl) body.set('source_url', sourceUrl)
+    return request<Source>('/sources', { method: 'POST', body })
+  },
 }
