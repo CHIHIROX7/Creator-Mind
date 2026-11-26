@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 
 import { useAppStore } from '@/stores/app'
+import { useAuthStore } from '@/stores/auth'
 
 defineEmits<{
   toggleSidebar: []
@@ -10,6 +11,7 @@ defineEmits<{
 
 const route = useRoute()
 const appStore = useAppStore()
+const auth = useAuthStore()
 
 const pageTitle = computed(() => {
   return typeof route.meta.title === 'string' ? route.meta.title : 'CreatorMind'
@@ -56,9 +58,8 @@ const pageTitle = computed(() => {
       >
         API 文档
       </a>
-      <div class="grid h-10 w-10 place-items-center rounded-full bg-ink-950 text-xs font-semibold text-white">
-        创作者
-      </div>
+      <span class="max-w-32 truncate text-sm font-medium text-ink-800">{{ auth.user?.username }}</span>
+      <button type="button" class="btn-secondary text-xs" @click="auth.logout">退出</button>
     </div>
   </header>
 </template>

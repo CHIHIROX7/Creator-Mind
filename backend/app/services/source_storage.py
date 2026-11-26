@@ -9,6 +9,7 @@ from uuid import UUID
 from boto3.session import Session
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
@@ -74,9 +75,15 @@ def _read_object(object_key: str) -> bytes:
         return body.read()
 
 
-async def read_source_file(db: AsyncSession, asset_id: UUID) -> tuple[Source, bytes] | None:
-    """Read an original for a trusted backend job using the uploaded source ID."""
-    source = await db.get(Source, asset_id)
+async def get_owned_source(db: AsyncSession, asset_id: UUID, *, user_id: UUID) -> Source | None:
+    return await db.scalar(select(Source).where(Source.id == asset_id, Source.user_id == user_id))
+
+
+async def read_source_file(
+    db: AsyncSession, asset_id: UUID, *, user_id: UUID
+) -> tuple[Source, bytes] | None:
+    """Read an original scoped to the user who scheduled the backend job."""
+    source = await get_owned_source(db, asset_id, user_id=user_id)
     if source is None:
         return None
     return source, await run_in_threadpool(_read_object, source.object_key)

@@ -8,11 +8,16 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import current_identity
 from app.api.routes import sources
+from app.core.csrf import require_csrf
 from app.db.session import get_db
 from app.main import app
+from app.models import AuthSession, User
+from app.services.auth import Identity
 
 ENDPOINT = "/api/v1/sources"
+USER_ID = uuid4()
 
 
 @pytest.fixture
@@ -29,20 +34,22 @@ def library(monkeypatch):
         objects[source.object_key] = file.read()
 
     db.add.side_effect = add
-    db.get.side_effect = lambda _model, asset_id: records.get(asset_id)
     db.scalars.return_value = Mock()
     db.scalars.return_value.all.return_value = []
     put_object = Mock(side_effect=put)
     discard_object = Mock(side_effect=lambda key: objects.pop(key, None))
     monkeypatch.setattr(sources, "put_source_object", put_object)
     monkeypatch.setattr(sources, "discard_source_object", discard_object)
-    monkeypatch.setattr(sources.settings, "environment", "test")
     app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[current_identity] = lambda: Identity(User(id=USER_ID), AuthSession())
+    app.dependency_overrides[require_csrf] = lambda: None
     try:
         with TestClient(app) as client:
             yield client, db, records, objects, put_object, discard_object
     finally:
         app.dependency_overrides.pop(get_db)
+        app.dependency_overrides.pop(current_identity, None)
+        app.dependency_overrides.pop(require_csrf)
 
 
 def test_uploaded_file_is_available_by_source_id(library):
@@ -61,11 +68,14 @@ def test_uploaded_file_is_available_by_source_id(library):
     assert asset["source_url"] == "https://example.com/notes"
     assert asset["size_bytes"] == len(b"# Notes")
     assert asset["content_type"] == "text/markdown"
+    assert source.user_id == USER_ID
     assert "object_key" not in asset
     assert objects[source.object_key] == b"# Notes"
     db.commit.assert_awaited_once()
 
+    db.scalar.return_value = source
     assert client.get(f"{ENDPOINT}/{asset['id']}").json() == asset
+    db.scalar.return_value = None
     assert client.get(f"{ENDPOINT}/{uuid4()}").status_code == 404
     db.scalars.return_value.all.return_value = [source]
     assert client.get(ENDPOINT, params={"limit": 1, "offset": 0}).json() == [asset]
@@ -122,10 +132,10 @@ def test_count_returns_the_total_outside_of_pagination(library, total):
     db.scalars.assert_not_awaited()
 
 
-def test_production_rejects_requests_before_database_access(library, monkeypatch):
+def test_anonymous_requests_cannot_read_materials(library):
     client, db, _, _, _, _ = library
-    monkeypatch.setattr(sources.settings, "environment", "production")
-    assert client.get(ENDPOINT).status_code == 503
-    assert client.get(f"{ENDPOINT}/count").status_code == 503
+    app.dependency_overrides.pop(current_identity)
+    assert client.get(ENDPOINT).status_code == 401
+    assert client.get(f"{ENDPOINT}/count").status_code == 401
     db.scalar.assert_not_awaited()
     db.scalars.assert_not_awaited()

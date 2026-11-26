@@ -1,13 +1,22 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import AppLayout from '@/layouts/AppLayout.vue'
+import { useAuthStore } from '@/stores/auth'
+import { safeRedirect } from './redirect'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     {
+      path: '/login',
+      name: 'login',
+      component: () => import('@/views/LoginView.vue'),
+      meta: { title: '登录' },
+    },
+    {
       path: '/',
       component: AppLayout,
+      meta: { requiresAuth: true },
       children: [
         {
           path: '',
@@ -34,12 +43,6 @@ const router = createRouter({
           meta: { title: '多对话与消息' },
         },
         {
-          path: 'memory',
-          name: 'memory',
-          component: () => import('@/views/MemoryView.vue'),
-          meta: { title: '个性化记忆' },
-        },
-        {
           path: 'settings',
           name: 'settings',
           component: () => import('@/views/SettingsView.vue'),
@@ -52,6 +55,15 @@ const router = createRouter({
       redirect: '/',
     },
   ],
+})
+
+router.beforeEach(async (to) => {
+  const auth = useAuthStore()
+  if (auth.status === 'unknown') await auth.confirmIdentity()
+  if (to.meta.requiresAuth && !auth.authenticated && auth.status !== 'unavailable' && auth.status !== 'unknown') {
+    return { name: 'login', query: { redirect: safeRedirect(to.fullPath, router) } }
+  }
+  if (to.name === 'login' && auth.authenticated) return safeRedirect(to.query.redirect, router)
 })
 
 router.afterEach((to) => {

@@ -20,6 +20,7 @@ class WriteDraftInput(ToolInput):
     format: str | None = None
     audience: str | None = None
     length: int | None = Field(default=None, ge=1, le=100_000)
+    memory_context: str = ""
     sources: list[dict[str, Any]]
 
 
@@ -31,10 +32,12 @@ class VerifyDraftInput(ToolInput):
 class ReviseDraftInput(ToolInput):
     draft_id: str = Field(min_length=1)
     instruction: str = Field(min_length=1)
+    memory_context: str = ""
 
 
 class RespondChatInput(ToolInput):
     message: str = Field(min_length=1)
+    memory_context: str = ""
 
 
 class ToolOutput(BaseModel):

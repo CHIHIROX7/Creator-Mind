@@ -4,18 +4,16 @@ from typing import Annotated
 from uuid import UUID, uuid4
 
 from botocore.exceptions import BotoCoreError, ClientError
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import HttpUrl
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
-from app.core.config import settings
-from app.db.session import get_db
+from app.api.deps import CsrfProtected, CurrentIdentity, DbSession
 from app.models.source import Source
 from app.schemas.source import SourceCount, SourceOut
-from app.services.source_storage import discard_source_object, put_source_object
+from app.services.source_storage import discard_source_object, get_owned_source, put_source_object
 
 logger = logging.getLogger(__name__)
 MAX_SOURCE_BYTES = 20 * 1024 * 1024
@@ -26,20 +24,15 @@ CONTENT_TYPES = {
 }
 
 
-def require_local_workspace() -> None:
-    if settings.environment == "production":
-        raise HTTPException(status_code=503, detail="素材库需要接入用户认证后才能上线")
+router = APIRouter(prefix="/sources", tags=["sources"])
 
 
-router = APIRouter(
-    prefix="/sources", tags=["sources"], dependencies=[Depends(require_local_workspace)]
+@router.post(
+    "", response_model=SourceOut, status_code=status.HTTP_201_CREATED, dependencies=[CsrfProtected]
 )
-DbSession = Annotated[AsyncSession, Depends(get_db)]
-
-
-@router.post("", response_model=SourceOut, status_code=status.HTTP_201_CREATED)
 async def upload_source(
     db: DbSession,
+    identity: CurrentIdentity,
     file: Annotated[UploadFile, File()],
     source_url: Annotated[HttpUrl | None, Form()] = None,
 ) -> Source:
@@ -64,6 +57,7 @@ async def upload_source(
     asset_id = uuid4()
     source = Source(
         id=asset_id,
+        user_id=identity.user.id,
         filename=filename,
         content_type=content_type,
         size_bytes=file.size,
@@ -104,11 +98,13 @@ async def upload_source(
 @router.get("", response_model=list[SourceOut])
 async def list_sources(
     db: DbSession,
+    identity: CurrentIdentity,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[Source]:
     result = await db.scalars(
         select(Source)
+        .where(Source.user_id == identity.user.id)
         .order_by(Source.created_at.desc(), Source.id.desc())
         .offset(offset)
         .limit(limit)
@@ -117,14 +113,16 @@ async def list_sources(
 
 
 @router.get("/count", response_model=SourceCount)
-async def count_sources(db: DbSession) -> SourceCount:
-    total = await db.scalar(select(func.count()).select_from(Source))
+async def count_sources(db: DbSession, identity: CurrentIdentity) -> SourceCount:
+    total = await db.scalar(
+        select(func.count()).select_from(Source).where(Source.user_id == identity.user.id)
+    )
     return SourceCount(total=total or 0)
 
 
 @router.get("/{asset_id}", response_model=SourceOut)
-async def get_source(asset_id: UUID, db: DbSession) -> Source:
-    source = await db.get(Source, asset_id)
+async def get_source(asset_id: UUID, db: DbSession, identity: CurrentIdentity) -> Source:
+    source = await get_owned_source(db, asset_id, user_id=identity.user.id)
     if source is None:
         raise HTTPException(status_code=404, detail="素材不存在")
     return source

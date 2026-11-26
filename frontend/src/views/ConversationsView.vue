@@ -1,7 +1,17 @@
 
 <script setup lang="ts">
-import { nextTick, onMounted, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { conversationsApi, type Conversation, type Message } from '@/api/conversations'
+import { useAuthStore } from '@/stores/auth'
+import { useDraftsStore } from '@/stores/drafts'
+
+const auth = useAuthStore()
+const drafts = useDraftsStore()
+const pageEpoch = auth.authEpoch
+const userId = auth.user!.id
+let alive = true
+const isCurrent = () => alive && auth.authenticated && auth.authEpoch === pageEpoch
+const restored = ref(false)
 
 const conversations = ref<Conversation[]>([])
 const activeId = ref<string | null>(null)
@@ -28,20 +38,24 @@ async function loadConversations() {
   error.value = ''
 
   try {
-    conversations.value = await conversationsApi.list()
-
-    if (conversations.value.length > 0) {
-      await selectConversation(conversations.value[0].id)
+    const received = await conversationsApi.list()
+    if (!isCurrent()) return
+    conversations.value = received
+    const target = drafts.chatTarget(userId)
+    const accessible = target && received.some((item) => item.id === target)
+    if (target && !accessible) drafts.takeChat(userId, target, false)
+    if (received.length > 0) {
+      await selectConversation(accessible ? target : received[0].id)
     }
   } catch (err) {
-    error.value = errorMessage(err)
+    if (isCurrent()) error.value = errorMessage(err)
   } finally {
-    loading.value = false
+    if (isCurrent()) loading.value = false
   }
 }
 
 async function selectConversation(id: string) {
-  if (activeId.value === id && messages.value.length > 0) return
+  if (!isCurrent() || (activeId.value === id && messages.value.length > 0)) return
 
   const version = ++selectionVersion
   activeId.value = id
@@ -52,13 +66,15 @@ async function selectConversation(id: string) {
   try {
     const received = await conversationsApi.messages(id)
 
-    if (version !== selectionVersion) return
+    if (!isCurrent() || version !== selectionVersion) return
 
     messages.value = received
+    const saved = drafts.takeChat(userId, id, true)
+    if (saved !== undefined) { draft.value = saved; restored.value = true }
     await scrollBottom()
   } catch (err) {
     if (version === selectionVersion) {
-      error.value = errorMessage(err)
+      if (isCurrent()) error.value = errorMessage(err)
     }
   }
 }
@@ -79,12 +95,13 @@ async function addConversation() {
 
   try {
     const created = await conversationsApi.create()
+    if (!isCurrent()) return
     conversations.value.unshift(created)
     await selectConversation(created.id)
   } catch (err) {
-    error.value = errorMessage(err)
+    if (isCurrent()) error.value = errorMessage(err)
   } finally {
-    busy.value = false
+    if (isCurrent()) busy.value = false
   }
 }
 
@@ -125,6 +142,7 @@ async function confirmRename() {
 
   try {
     const updated = await conversationsApi.rename(item.id, title)
+    if (!isCurrent()) return
 
     conversations.value = conversations.value.map((current) =>
       current.id === item.id ? updated : current
@@ -133,9 +151,9 @@ async function confirmRename() {
     renameTarget.value = null
     renameTitle.value = ''
   } catch (err) {
-    error.value = errorMessage(err)
+    if (isCurrent()) error.value = errorMessage(err)
   } finally {
-    actionBusy.value = false
+    if (isCurrent()) actionBusy.value = false
   }
 }
 
@@ -162,6 +180,7 @@ async function confirmDelete() {
 
   try {
     await conversationsApi.remove(item.id)
+    if (!isCurrent()) return
 
     conversations.value = conversations.value.filter(
       (current) => current.id !== item.id
@@ -178,11 +197,12 @@ async function confirmDelete() {
       }
     }
 
+    if (!isCurrent()) return
     deleteTarget.value = null
   } catch (err) {
-    error.value = errorMessage(err)
+    if (isCurrent()) error.value = errorMessage(err)
   } finally {
-    actionBusy.value = false
+    if (isCurrent()) actionBusy.value = false
   }
 }
 
@@ -195,15 +215,18 @@ async function sendMessage() {
   error.value = ''
 
   const id = activeId.value
+  const version = selectionVersion
 
   try {
     const message = await conversationsApi.send(id, text)
+    if (!isCurrent()) return
 
-    if (activeId.value === id) {
+    if (activeId.value === id && version === selectionVersion) {
       messages.value.push(message)
       draft.value = ''
       await scrollBottom()
     }
+    if (!isCurrent()) return
 
     const updated = conversations.value.find((item) => item.id === id)
 
@@ -215,9 +238,9 @@ async function sendMessage() {
       ]
     }
   } catch (err) {
-    error.value = errorMessage(err)
+    if (isCurrent()) error.value = errorMessage(err)
   } finally {
-    busy.value = false
+    if (isCurrent()) busy.value = false
   }
 }
 
@@ -232,6 +255,24 @@ function handleKeydown(event: KeyboardEvent) {
   }
 }
 
+const unsubscribe = auth.onPrivateReset((reason) => {
+  if (auth.authEpoch !== pageEpoch) return
+  if (reason !== 'logout' && activeId.value && draft.value) drafts.saveChat(userId, activeId.value, draft.value)
+  ++selectionVersion
+  conversations.value = []
+  messages.value = []
+  activeId.value = null
+  draft.value = ''
+  renameTarget.value = null
+  renameTitle.value = ''
+  deleteTarget.value = null
+  busy.value = false
+  actionBusy.value = false
+  loading.value = false
+  error.value = ''
+})
+
+onBeforeUnmount(() => { alive = false; unsubscribe() })
 onMounted(() => void loadConversations())
 </script>
 
@@ -245,8 +286,9 @@ onMounted(() => void loadConversations())
         多对话与消息
       </h2>
       <p class="mt-2 text-sm text-ink-500">
-        创建不同会话，保存并查看历史消息。当前版本不自动调用 AI。
+        创建不同会话，保存并查看历史消息。当前版本不自动调用 AI。未提交草稿仅在内存中，刷新或主动退出会清除。
       </p>
+      <p v-if="restored" role="status" class="mt-2 text-sm text-brand-600">已恢复同账号的未提交输入。请先核对最新消息；此前发送结果不明时，不会自动重复发送。</p>
     </div>
 
     <div
